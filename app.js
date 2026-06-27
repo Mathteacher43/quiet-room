@@ -153,13 +153,17 @@ function connectRelay(url) {
     return;
   }
   try {
-    var socket = new WebSocket(url);
+    // 방 ID를 path에 포함해서 Durable Object가 방별로 고정 인스턴스 사용
+    var base = url.replace(/\/+$/, "");
+    var wsUrl = base + "/room/" + encodeURIComponent(state.roomId);
+    console.log("[relay] connecting to:", wsUrl);
+
+    var socket = new WebSocket(wsUrl);
     state.socket = socket;
 
     socket.addEventListener("open", function() {
       updateRelayStatus("중계 연결됨", "good");
-      socket.send(JSON.stringify({ type: "join", roomId: state.roomId }));
-      console.log("[relay] joined room:", state.roomId);
+      console.log("[relay] connected, room:", state.roomId);
     });
 
     socket.addEventListener("message", function(event) {
@@ -198,7 +202,8 @@ function receivePacket(packet) {
 function broadcastPacket(packet) {
   if (state.channel) state.channel.postMessage(packet);
   if (state.socket && state.socket.readyState === WebSocket.OPEN) {
-    state.socket.send(JSON.stringify({ type: "packet", roomId: state.roomId, body: packet }));
+    var msg = JSON.stringify({ type: "packet", roomId: state.roomId, body: packet });
+    state.socket.send(msg);
     console.log("[relay] sent packet to room:", state.roomId);
   }
 }
