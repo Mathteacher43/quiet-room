@@ -267,7 +267,7 @@ async function copyInvite() {
 function hydrateFromUrl() {
   const hash = new URLSearchParams(location.hash.slice(1));
   els.roomId.value   = hash.get("room")  || randomToken(12);
-  els.relayUrl.value = hash.get("relay") || "";
+  els.relayUrl.value = hash.get("relay") || "wss://quiet-room-relay.chaostatix.workers.dev";
   els.nickname.value = `guest-${randomToken(3)}`;
 }
 
