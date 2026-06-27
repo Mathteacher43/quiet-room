@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quiet Room</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <div class="room-panel">
+      <header class="topbar">
+        <div class="brand-row">
+          <span class="mark">Q</span>
+          <div>
+            <h1>Quiet Room</h1>
+            <p class="eyebrow">end-to-end encrypted · no accounts · no logs</p>
+          </div>
+        </div>
+        <div class="status-stack">
+          <span class="status" id="cryptoStatus">암호화 대기 중</span>
+          <span class="status" id="relayStatus">오프라인</span>
+        </div>
+      </header>
+
+      <div class="setup-grid">
+        <label>
+          방 ID
+          <div class="inline-control">
+            <input id="roomId" type="text" placeholder="자동 생성됨" autocomplete="off" spellcheck="false" />
+          </div>
+        </label>
+        <label>
+          비밀키
+          <div class="inline-control">
+            <input id="roomSecret" type="password" placeholder="공유할 비밀키" autocomplete="off" />
+            <button id="showSecretButton" title="비밀키 표시/숨기기">👁</button>
+          </div>
+        </label>
+        <label>
+          닉네임
+          <input id="nickname" type="text" placeholder="익명" autocomplete="off" />
+        </label>
+        <label>
+          중계 서버 URL <span style="font-weight:400">(선택)</span>
+          <input id="relayUrl" type="url" placeholder="wss://..." autocomplete="off" />
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="newRoomButton">새 방 만들기</button>
+        <button class="primary" id="joinButton">방 입장</button>
+        <button id="copyInviteButton">초대 링크 복사</button>
+        <button id="clearButton">메시지 지우기</button>
+      </div>
+
+      <div class="notice" id="notice">
+        <strong>비밀키는 이 앱 밖에서 따로 공유하세요.</strong>
+        초대 링크에는 방 ID만 포함됩니다. 메시지는 서버에 저장되지 않으며 탭을 닫으면 사라집니다.
+      </div>
+
+      <div class="messages" id="messages" role="log" aria-live="polite">
+        <p class="empty" id="emptyMsg">아직 메시지가 없습니다.<br />방에 입장하면 대화가 시작됩니다.</p>
+      </div>
+
+      <form class="composer" id="form">
+        <input id="messageInput" type="text" placeholder="방에 입장하면 메시지를 보낼 수 있습니다." disabled autocomplete="off" />
+        <button id="sendButton" type="submit" disabled>전송</button>
+      </form>
+    </div>
+
+    <aside class="side-panel">
+      <h2>사용 방법</h2>
+      <dl>
+        <div>
+          <dt>1. 방 만들기</dt>
+          <dd>「새 방 만들기」를 눌러 방 ID와 비밀키를 자동 생성합니다.</dd>
+        </div>
+        <div>
+          <dt>2. 비밀키 공유</dt>
+          <dd>비밀키는 앱 밖 별도 채널(전화, 다른 메신저 등)로만 공유하세요.</dd>
+        </div>
+        <div>
+          <dt>3. 초대 링크 전송</dt>
+          <dd>「초대 링크 복사」로 방 ID와 중계 서버 주소가 담긴 링크를 공유합니다.</dd>
+        </div>
+        <div>
+          <dt>암호화 방식</dt>
+          <dd>AES-GCM 256-bit. 키는 PBKDF2(SHA-256, 200,000회)로 유도됩니다. 메시지마다 새 IV가 생성됩니다.</dd>
+        </div>
+        <div>
+          <dt>한계</dt>
+          <dd>IP, 접속 시간 등 메타데이터는 중계 서버에 보일 수 있습니다. 공개 서비스 전 외부 보안 리뷰를 권장합니다.</dd>
+        </div>
+      </dl>
+    </aside>
+  </div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
