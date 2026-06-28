@@ -6,50 +6,42 @@ function randomToken(len) {
     .replace(/[+/=]/g, c => ({ '+': '-', '/': '_', '=': '' }[c]))
     .slice(0, len);
 }
-
 function toBase64(buf) {
   return btoa(String.fromCharCode(...new Uint8Array(buf)));
 }
-
 function fromBase64(str) {
   return Uint8Array.from(atob(str), c => c.charCodeAt(0));
 }
-
 function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
 
 // ── Crypto ─────────────────────────────────────────────────────────────────
 
 async function deriveKey(secret, roomId) {
   const enc = new TextEncoder();
-  const raw = await crypto.subtle.importKey(
-    "raw", enc.encode(secret), "PBKDF2", false, ["deriveKey"]
-  );
+  const raw = await crypto.subtle.importKey("raw", enc.encode(secret), "PBKDF2", false, ["deriveKey"]);
   return crypto.subtle.deriveKey(
     { name: "PBKDF2", salt: enc.encode(roomId), iterations: 200000, hash: "SHA-256" },
-    raw,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
+    raw, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
   );
 }
 
-async function encryptMessage(message) {
+async function encryptPayload(obj) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const plaintext = new TextEncoder().encode(JSON.stringify(message));
-  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, state.key, plaintext);
-  return { roomId: state.roomId, sender: state.clientId, iv: toBase64(iv), ct: toBase64(ciphertext) };
+  const ct = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv }, state.key,
+    new TextEncoder().encode(JSON.stringify(obj))
+  );
+  return { roomId: state.roomId, sender: state.clientId, iv: toBase64(iv), ct: toBase64(ct) };
 }
 
-async function decryptPacket(packet) {
-  const plaintext = await crypto.subtle.decrypt(
+async function decryptPayload(packet) {
+  const plain = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: fromBase64(packet.iv) },
-    state.key,
-    fromBase64(packet.ct)
+    state.key, fromBase64(packet.ct)
   );
-  return JSON.parse(new TextDecoder().decode(plaintext));
+  return JSON.parse(new TextDecoder().decode(plain));
 }
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -59,7 +51,7 @@ var state = {
   clientId: randomToken(8), channel: null, socket: null,
 };
 
-// ── DOM refs ───────────────────────────────────────────────────────────────
+// ── DOM ────────────────────────────────────────────────────────────────────
 
 var els = {
   roomId:           document.getElementById("roomId"),
@@ -83,21 +75,11 @@ var els = {
   onlineStatus:     document.getElementById("onlineStatus"),
 };
 
-// ── UI helpers ─────────────────────────────────────────────────────────────
+// ── UI ─────────────────────────────────────────────────────────────────────
 
-function updateRelayStatus(text, cls) {
-  els.relayStatus.textContent = text;
-  els.relayStatus.className = "status" + (cls ? " " + cls : "");
-}
-
-function updateRoomStatus(text, cls) {
-  els.roomStatus.textContent = text;
-  els.roomStatus.className = "status" + (cls ? " " + cls : "");
-}
-
-function updateOnlineStatus(count) {
-  els.onlineStatus.textContent = "접속 중 " + count + "명";
-  els.onlineStatus.className = "status good";
+function setStatus(el, text, cls) {
+  el.textContent = text;
+  el.className = "status" + (cls ? " " + cls : "");
 }
 
 function clearMessages() {
@@ -116,24 +98,22 @@ function appendMessage(message, isMine) {
   var empty = document.getElementById("emptyMsg");
   if (empty) empty.remove();
 
-  var time = new Date(message.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+  var time = new Date(message.createdAt).toLocaleTimeString("ko-KR", { hour:"2-digit", minute:"2-digit" });
   var div = document.createElement("div");
   div.className = "message" + (isMine ? " mine" : "");
 
-  var content = "";
+  var body = "";
   if (message.type === "image" && message.dataUrl) {
-    content = '<img class="msg-image" src="' + escapeHtml(message.dataUrl) + '" alt="이미지" onclick="openImage(this.src)" />';
+    body = '<img class="msg-image" src="' + escapeHtml(message.dataUrl) + '" alt="이미지" onclick="openImage(this.src)" />';
   } else if (message.type === "file" && message.dataUrl) {
-    content = '<a class="msg-file" href="' + escapeHtml(message.dataUrl) + '" download="' + escapeHtml(message.fileName || "file") + '">📎 ' + escapeHtml(message.fileName || "파일 다운로드") + '</a>';
+    body = '<a class="msg-file" href="' + escapeHtml(message.dataUrl) + '" download="' + escapeHtml(message.fileName||"file") + '">📎 ' + escapeHtml(message.fileName||"파일") + '</a>';
   } else {
-    content = '<p>' + escapeHtml(message.text) + '</p>';
+    body = '<p>' + escapeHtml(message.text) + '</p>';
   }
 
   div.innerHTML =
-    '<div class="message-meta">' +
-    '<span class="sender">' + escapeHtml(message.nickname) + '</span>' +
-    '<span>' + time + '</span>' +
-    '</div>' + content;
+    '<div class="message-meta"><span class="sender">' + escapeHtml(message.nickname) +
+    '</span><span>' + time + '</span></div>' + body;
 
   els.messages.appendChild(div);
   els.messages.scrollTop = els.messages.scrollHeight;
@@ -144,23 +124,36 @@ function openImage(src) {
   w.document.write('<img src="' + src + '" style="max-width:100%;cursor:pointer" onclick="window.close()" />');
 }
 
+// ── 비밀키 핸드셰이크 ──────────────────────────────────────────────────────
+// 입장 시 암호화된 "hello" 패킷을 브로드캐스트.
+// 상대방이 이걸 복호화하지 못하면 → 비밀키가 다른 것 → 즉시 퇴장.
+
+var HELLO_TEXT = "__qr_hello__";
+var helloTimer = null;
+
+async function sendHello() {
+  if (!state.key) return;
+  var packet = await encryptPayload({ type: "hello", text: HELLO_TEXT, nickname: state.nickname, createdAt: Date.now() });
+  broadcastPacket(packet);
+}
+
 // ── Network ────────────────────────────────────────────────────────────────
 
 function closeConnections() {
   if (state.channel) { state.channel.close(); state.channel = null; }
   if (state.socket)  { state.socket.close();  state.socket = null;  }
+  if (helloTimer)    { clearTimeout(helloTimer); helloTimer = null; }
 }
 
 function connectLocalChannel() {
   state.channel = new BroadcastChannel("quiet-room:" + state.roomId);
-  state.channel.addEventListener("message", function(event) { receivePacket(event.data); });
+  state.channel.addEventListener("message", function(e) { handleRelayMessage(e.data); });
 }
 
 function connectRelay(url) {
-  if (!url) { updateRelayStatus("로컬 모드 (같은 브라우저 탭만)"); return; }
+  if (!url) { setStatus(els.relayStatus, "로컬 모드"); return; }
   try {
-    var base = url.replace(/\/+$/, "");
-    var wsUrl = base + "/room/" + encodeURIComponent(state.roomId)
+    var wsUrl = url.replace(/\/+$/, "") + "/room/" + encodeURIComponent(state.roomId)
       + "?clientId=" + encodeURIComponent(state.clientId)
       + "&nickname=" + encodeURIComponent(state.nickname);
 
@@ -168,45 +161,66 @@ function connectRelay(url) {
     state.socket = socket;
 
     socket.addEventListener("open", function() {
-      updateRelayStatus("중계 연결됨", "good");
+      setStatus(els.relayStatus, "중계 연결됨", "good");
+      // 입장 직후 hello 브로드캐스트 (100ms 딜레이로 연결 안정화)
+      helloTimer = setTimeout(sendHello, 100);
     });
 
-    socket.addEventListener("message", function(event) {
+    socket.addEventListener("message", function(e) {
       var parsed;
-      try { parsed = JSON.parse(event.data); } catch(e) { return; }
-
-      if (parsed.type === "system") {
-        if (parsed.event === "join") {
-          appendSystem("✦ " + parsed.nickname + " 님이 입장했습니다");
-        } else if (parsed.event === "leave") {
-          appendSystem("✧ " + parsed.nickname + " 님이 퇴장했습니다");
-        }
-        updateOnlineStatus(parsed.online);
-        return;
-      }
-
-      if (parsed.type === "online") {
-        updateOnlineStatus(parsed.count);
-        return;
-      }
-
-      if (parsed.type === "packet" && parsed.roomId === state.roomId) {
-        receivePacket(parsed.body);
-      }
+      try { parsed = JSON.parse(e.data); } catch { return; }
+      handleRelayMessage(parsed);
     });
 
-    socket.addEventListener("close", function() { updateRelayStatus("중계 끊김", "warn"); });
-    socket.addEventListener("error", function() { updateRelayStatus("중계 오류", "warn"); });
+    socket.addEventListener("close", function(e) {
+      // 1008 = 비밀키 불일치로 서버가 내린 코드 (미래 확장용)
+      setStatus(els.relayStatus, "중계 끊김", "warn");
+      setStatus(els.onlineStatus, "오프라인");
+    });
 
-  } catch(e) { updateRelayStatus("중계 URL 확인 필요", "warn"); }
+    socket.addEventListener("error", function() {
+      setStatus(els.relayStatus, "중계 오류", "warn");
+      setStatus(els.onlineStatus, "오프라인");
+    });
+
+  } catch(e) { setStatus(els.relayStatus, "URL 오류", "warn"); }
+}
+
+function handleRelayMessage(parsed) {
+  if (!parsed) return;
+
+  // 시스템 메시지 (입장/퇴장/접속자 수)
+  if (parsed.type === "system") {
+    if (parsed.event === "join") appendSystem("✦ " + parsed.nickname + " 님이 입장했습니다");
+    if (parsed.event === "leave") appendSystem("✧ " + parsed.nickname + " 님이 퇴장했습니다");
+    setStatus(els.onlineStatus, "접속 중 " + parsed.online + "명", "good");
+    return;
+  }
+
+  if (parsed.type === "online") {
+    setStatus(els.onlineStatus, "접속 중 " + parsed.count + "명", "good");
+    return;
+  }
+
+  // 암호화 패킷
+  if (parsed.type === "packet" && parsed.roomId === state.roomId && parsed.sender !== state.clientId) {
+    receivePacket(parsed);
+  }
 }
 
 function receivePacket(packet) {
-  if (!packet || packet.roomId !== state.roomId || packet.sender === state.clientId) return;
-  decryptPacket(packet).then(function(message) {
-    appendMessage(message, false);
+  decryptPayload(packet).then(function(msg) {
+    // hello 패킷: 복호화 성공 = 같은 키. 아무것도 안 해도 됨.
+    if (msg.type === "hello") return;
+    appendMessage(msg, false);
   }).catch(function() {
-    updateRelayStatus("복호화 실패 — 비밀키를 확인하세요", "warn");
+    // 복호화 실패 = 비밀키가 다른 사람이 같은 방에 있음
+    appendSystem("⚠ 비밀키가 다른 사용자가 접속을 시도했습니다. 방을 나갑니다.");
+    setStatus(els.relayStatus, "비밀키 불일치 — 퇴장", "warn");
+    closeConnections();
+    els.messageInput.disabled = true;
+    els.sendButton.disabled = true;
+    els.fileButton.disabled = true;
   });
 }
 
@@ -223,20 +237,17 @@ function joinRoom() {
   var roomId   = els.roomId.value.trim();
   var secret   = els.roomSecret.value;
   var nickname = els.nickname.value.trim() || "익명";
-
   if (!roomId || !secret) { alert("방 ID와 비밀키가 필요합니다."); return; }
 
   els.joinButton.disabled = true;
   els.joinButton.textContent = "입장 중…";
-  els.cryptoStatus.textContent = "키 유도 중…";
-  els.cryptoStatus.className = "status";
+  setStatus(els.cryptoStatus, "키 유도 중…");
+  setStatus(els.onlineStatus, "연결 중…");
 
   closeConnections();
 
   deriveKey(secret, roomId).then(function(key) {
-    state.roomId   = roomId;
-    state.nickname = nickname;
-    state.key      = key;
+    state.roomId = roomId; state.nickname = nickname; state.key = key;
 
     connectLocalChannel();
     connectRelay(els.relayUrl.value.trim());
@@ -247,16 +258,13 @@ function joinRoom() {
     els.messageInput.placeholder = "메시지를 입력하세요…";
     els.messageInput.focus();
 
-    els.cryptoStatus.textContent = "AES-GCM 256 활성화";
-    els.cryptoStatus.className   = "status good";
-    updateRoomStatus("입장: " + roomId, "good");
+    setStatus(els.cryptoStatus, "AES-GCM 256 활성화", "good");
+    setStatus(els.roomStatus, "입장: " + roomId, "good");
 
     clearMessages();
     history.replaceState(null, "", "#room=" + encodeURIComponent(roomId));
-
-  }).catch(function(err) {
-    els.cryptoStatus.textContent = "키 생성 실패";
-    els.cryptoStatus.className = "status warn";
+  }).catch(function() {
+    setStatus(els.cryptoStatus, "키 생성 실패", "warn");
   }).finally(function() {
     els.joinButton.disabled = false;
     els.joinButton.textContent = "방 입장";
@@ -268,7 +276,7 @@ function sendMessage(event) {
   var text = els.messageInput.value.trim();
   if (!text || !state.key) return;
   var message = { type: "text", text: text, nickname: state.nickname, createdAt: Date.now() };
-  encryptMessage(message).then(function(packet) {
+  encryptPayload(message).then(function(packet) {
     appendMessage(message, true);
     broadcastPacket(packet);
     els.messageInput.value = "";
@@ -277,21 +285,13 @@ function sendMessage(event) {
 
 function sendFile(file) {
   if (!file || !state.key) return;
-
-  var MAX = 3 * 1024 * 1024; // 3MB
-  if (file.size > MAX) { alert("파일 크기는 3MB 이하만 가능합니다."); return; }
-
+  if (file.size > 3 * 1024 * 1024) { alert("3MB 이하 파일만 전송 가능합니다."); return; }
   var reader = new FileReader();
   reader.onload = function(e) {
     var isImage = file.type.startsWith("image/");
-    var message = {
-      type: isImage ? "image" : "file",
-      dataUrl: e.target.result,
-      fileName: file.name,
-      nickname: state.nickname,
-      createdAt: Date.now(),
-    };
-    encryptMessage(message).then(function(packet) {
+    var message = { type: isImage ? "image" : "file", dataUrl: e.target.result,
+      fileName: file.name, nickname: state.nickname, createdAt: Date.now() };
+    encryptPayload(message).then(function(packet) {
       appendMessage(message, true);
       broadcastPacket(packet);
     });
@@ -303,8 +303,7 @@ function copyInvite() {
   var params = new URLSearchParams();
   if (els.roomId.value.trim())   params.set("room",  els.roomId.value.trim());
   if (els.relayUrl.value.trim()) params.set("relay", els.relayUrl.value.trim());
-  var link = location.origin + location.pathname + "#" + params.toString();
-  navigator.clipboard.writeText(link).then(function() {
+  navigator.clipboard.writeText(location.origin + location.pathname + "#" + params.toString()).then(function() {
     els.copyInviteButton.textContent = "복사됨 ✓";
     setTimeout(function() { els.copyInviteButton.textContent = "초대 링크 복사"; }, 1400);
   });
@@ -317,36 +316,33 @@ function hydrateFromUrl() {
   els.nickname.value = "guest-" + randomToken(3);
 }
 
-// ── Event listeners ────────────────────────────────────────────────────────
+// ── Events ─────────────────────────────────────────────────────────────────
 
 els.newRoomButton.addEventListener("click", function() {
-  els.roomId.value     = randomToken(12);
+  els.roomId.value = randomToken(12);
   els.roomSecret.value = randomToken(24);
   joinRoom();
 });
-
 els.showSecretButton.addEventListener("click", function() {
   els.roomSecret.type = els.roomSecret.type === "password" ? "text" : "password";
 });
-
 els.joinButton.addEventListener("click", joinRoom);
 els.copyInviteButton.addEventListener("click", copyInvite);
 els.clearButton.addEventListener("click", clearMessages);
 els.form.addEventListener("submit", sendMessage);
-
 els.fileButton.addEventListener("click", function() { els.fileInput.click(); });
 els.fileInput.addEventListener("change", function() {
   if (els.fileInput.files[0]) { sendFile(els.fileInput.files[0]); els.fileInput.value = ""; }
 });
-
-// 드래그 앤 드롭
-els.messages.addEventListener("dragover", function(e) { e.preventDefault(); els.messages.classList.add("drag-over"); });
-els.messages.addEventListener("dragleave", function() { els.messages.classList.remove("drag-over"); });
-els.messages.addEventListener("drop", function(e) {
-  e.preventDefault();
+els.messages.addEventListener("dragover", function(e) {
+  e.preventDefault(); els.messages.classList.add("drag-over");
+});
+els.messages.addEventListener("dragleave", function() {
   els.messages.classList.remove("drag-over");
-  var file = e.dataTransfer.files[0];
-  if (file) sendFile(file);
+});
+els.messages.addEventListener("drop", function(e) {
+  e.preventDefault(); els.messages.classList.remove("drag-over");
+  if (e.dataTransfer.files[0]) sendFile(e.dataTransfer.files[0]);
 });
 
 // ── Init ───────────────────────────────────────────────────────────────────
@@ -355,8 +351,7 @@ hydrateFromUrl();
 clearMessages();
 
 if (!window.crypto || !window.crypto.subtle) {
-  els.cryptoStatus.textContent = "HTTPS 환경 필요";
-  els.cryptoStatus.className = "status warn";
+  setStatus(els.cryptoStatus, "HTTPS 필요", "warn");
   els.joinButton.disabled = true;
   els.newRoomButton.disabled = true;
 }
