@@ -15,6 +15,11 @@ function fromBase64(str) {
   return Uint8Array.from(atob(str), c => c.charCodeAt(0));
 }
 
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 // ── Crypto ─────────────────────────────────────────────────────────────────
 
 async function deriveKey(secret, roomId) {
@@ -34,26 +39,15 @@ async function deriveKey(secret, roomId) {
 async function encryptMessage(message) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plaintext = new TextEncoder().encode(JSON.stringify(message));
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    state.key,
-    plaintext
-  );
-  return {
-    roomId: state.roomId,
-    sender: state.clientId,
-    iv: toBase64(iv),
-    ct: toBase64(ciphertext),
-  };
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, state.key, plaintext);
+  return { roomId: state.roomId, sender: state.clientId, iv: toBase64(iv), ct: toBase64(ciphertext) };
 }
 
 async function decryptPacket(packet) {
-  const iv = fromBase64(packet.iv);
-  const ciphertext = fromBase64(packet.ct);
   const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv: fromBase64(packet.iv) },
     state.key,
-    ciphertext
+    fromBase64(packet.ct)
   );
   return JSON.parse(new TextDecoder().decode(plaintext));
 }
@@ -61,12 +55,8 @@ async function decryptPacket(packet) {
 // ── State ──────────────────────────────────────────────────────────────────
 
 var state = {
-  roomId: null,
-  nickname: null,
-  key: null,
-  clientId: randomToken(8),
-  channel: null,
-  socket: null,
+  roomId: null, nickname: null, key: null,
+  clientId: randomToken(8), channel: null, socket: null,
 };
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
@@ -84,10 +74,13 @@ var els = {
   form:             document.getElementById("form"),
   messageInput:     document.getElementById("messageInput"),
   sendButton:       document.getElementById("sendButton"),
+  fileInput:        document.getElementById("fileInput"),
+  fileButton:       document.getElementById("fileButton"),
   messages:         document.getElementById("messages"),
   cryptoStatus:     document.getElementById("cryptoStatus"),
   relayStatus:      document.getElementById("relayStatus"),
   roomStatus:       document.getElementById("roomStatus"),
+  onlineStatus:     document.getElementById("onlineStatus"),
 };
 
 // ── UI helpers ─────────────────────────────────────────────────────────────
@@ -102,35 +95,53 @@ function updateRoomStatus(text, cls) {
   els.roomStatus.className = "status" + (cls ? " " + cls : "");
 }
 
+function updateOnlineStatus(count) {
+  els.onlineStatus.textContent = "접속 중 " + count + "명";
+  els.onlineStatus.className = "status good";
+}
+
 function clearMessages() {
   els.messages.innerHTML = '<p class="empty" id="emptyMsg">아직 메시지가 없습니다.<br/>방에 입장하면 대화가 시작됩니다.</p>';
+}
+
+function appendSystem(text) {
+  var div = document.createElement("div");
+  div.className = "system-msg";
+  div.textContent = text;
+  els.messages.appendChild(div);
+  els.messages.scrollTop = els.messages.scrollHeight;
 }
 
 function appendMessage(message, isMine) {
   var empty = document.getElementById("emptyMsg");
   if (empty) empty.remove();
 
-  var time = new Date(message.createdAt).toLocaleTimeString("ko-KR", {
-    hour: "2-digit", minute: "2-digit"
-  });
-
+  var time = new Date(message.createdAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
   var div = document.createElement("div");
   div.className = "message" + (isMine ? " mine" : "");
+
+  var content = "";
+  if (message.type === "image" && message.dataUrl) {
+    content = '<img class="msg-image" src="' + escapeHtml(message.dataUrl) + '" alt="이미지" onclick="openImage(this.src)" />';
+  } else if (message.type === "file" && message.dataUrl) {
+    content = '<a class="msg-file" href="' + escapeHtml(message.dataUrl) + '" download="' + escapeHtml(message.fileName || "file") + '">📎 ' + escapeHtml(message.fileName || "파일 다운로드") + '</a>';
+  } else {
+    content = '<p>' + escapeHtml(message.text) + '</p>';
+  }
+
   div.innerHTML =
     '<div class="message-meta">' +
     '<span class="sender">' + escapeHtml(message.nickname) + '</span>' +
     '<span>' + time + '</span>' +
-    '</div>' +
-    '<p>' + escapeHtml(message.text) + '</p>';
+    '</div>' + content;
+
   els.messages.appendChild(div);
   els.messages.scrollTop = els.messages.scrollHeight;
 }
 
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+function openImage(src) {
+  var w = window.open();
+  w.document.write('<img src="' + src + '" style="max-width:100%;cursor:pointer" onclick="window.close()" />');
 }
 
 // ── Network ────────────────────────────────────────────────────────────────
@@ -142,52 +153,52 @@ function closeConnections() {
 
 function connectLocalChannel() {
   state.channel = new BroadcastChannel("quiet-room:" + state.roomId);
-  state.channel.addEventListener("message", function(event) {
-    receivePacket(event.data);
-  });
+  state.channel.addEventListener("message", function(event) { receivePacket(event.data); });
 }
 
 function connectRelay(url) {
-  if (!url) {
-    updateRelayStatus("로컬 모드 (같은 브라우저 탭만)");
-    return;
-  }
+  if (!url) { updateRelayStatus("로컬 모드 (같은 브라우저 탭만)"); return; }
   try {
-    // 방 ID를 path에 포함해서 Durable Object가 방별로 고정 인스턴스 사용
     var base = url.replace(/\/+$/, "");
-    var wsUrl = base + "/room/" + encodeURIComponent(state.roomId);
-    console.log("[relay] connecting to:", wsUrl);
+    var wsUrl = base + "/room/" + encodeURIComponent(state.roomId)
+      + "?clientId=" + encodeURIComponent(state.clientId)
+      + "&nickname=" + encodeURIComponent(state.nickname);
 
     var socket = new WebSocket(wsUrl);
     state.socket = socket;
 
     socket.addEventListener("open", function() {
       updateRelayStatus("중계 연결됨", "good");
-      console.log("[relay] connected, room:", state.roomId);
     });
 
     socket.addEventListener("message", function(event) {
       var parsed;
       try { parsed = JSON.parse(event.data); } catch(e) { return; }
-      console.log("[relay] received:", parsed.type);
+
+      if (parsed.type === "system") {
+        if (parsed.event === "join") {
+          appendSystem("✦ " + parsed.nickname + " 님이 입장했습니다");
+        } else if (parsed.event === "leave") {
+          appendSystem("✧ " + parsed.nickname + " 님이 퇴장했습니다");
+        }
+        updateOnlineStatus(parsed.online);
+        return;
+      }
+
+      if (parsed.type === "online") {
+        updateOnlineStatus(parsed.count);
+        return;
+      }
+
       if (parsed.type === "packet" && parsed.roomId === state.roomId) {
         receivePacket(parsed.body);
       }
     });
 
-    socket.addEventListener("close", function(e) {
-      console.log("[relay] closed:", e.code, e.reason);
-      updateRelayStatus("중계 끊김", "warn");
-    });
+    socket.addEventListener("close", function() { updateRelayStatus("중계 끊김", "warn"); });
+    socket.addEventListener("error", function() { updateRelayStatus("중계 오류", "warn"); });
 
-    socket.addEventListener("error", function(e) {
-      console.log("[relay] error:", e);
-      updateRelayStatus("중계 오류", "warn");
-    });
-
-  } catch(e) {
-    updateRelayStatus("중계 URL 확인 필요", "warn");
-  }
+  } catch(e) { updateRelayStatus("중계 URL 확인 필요", "warn"); }
 }
 
 function receivePacket(packet) {
@@ -202,9 +213,7 @@ function receivePacket(packet) {
 function broadcastPacket(packet) {
   if (state.channel) state.channel.postMessage(packet);
   if (state.socket && state.socket.readyState === WebSocket.OPEN) {
-    var msg = JSON.stringify({ type: "packet", roomId: state.roomId, body: packet });
-    state.socket.send(msg);
-    console.log("[relay] sent packet to room:", state.roomId);
+    state.socket.send(JSON.stringify({ type: "packet", roomId: state.roomId, body: packet }));
   }
 }
 
@@ -215,15 +224,12 @@ function joinRoom() {
   var secret   = els.roomSecret.value;
   var nickname = els.nickname.value.trim() || "익명";
 
-  if (!roomId || !secret) {
-    alert("방 ID와 비밀키가 필요합니다.");
-    return;
-  }
+  if (!roomId || !secret) { alert("방 ID와 비밀키가 필요합니다."); return; }
 
-  els.joinButton.disabled    = true;
+  els.joinButton.disabled = true;
   els.joinButton.textContent = "입장 중…";
   els.cryptoStatus.textContent = "키 유도 중…";
-  els.cryptoStatus.className   = "status";
+  els.cryptoStatus.className = "status";
 
   closeConnections();
 
@@ -235,25 +241,24 @@ function joinRoom() {
     connectLocalChannel();
     connectRelay(els.relayUrl.value.trim());
 
-    els.messageInput.disabled    = false;
-    els.sendButton.disabled      = false;
+    els.messageInput.disabled = false;
+    els.sendButton.disabled   = false;
+    els.fileButton.disabled   = false;
     els.messageInput.placeholder = "메시지를 입력하세요…";
     els.messageInput.focus();
 
     els.cryptoStatus.textContent = "AES-GCM 256 활성화";
     els.cryptoStatus.className   = "status good";
-
-    updateRoomStatus("입장 중: " + roomId, "good");
+    updateRoomStatus("입장: " + roomId, "good");
 
     clearMessages();
     history.replaceState(null, "", "#room=" + encodeURIComponent(roomId));
 
   }).catch(function(err) {
     els.cryptoStatus.textContent = "키 생성 실패";
-    els.cryptoStatus.className   = "status warn";
-    console.error(err);
+    els.cryptoStatus.className = "status warn";
   }).finally(function() {
-    els.joinButton.disabled    = false;
+    els.joinButton.disabled = false;
     els.joinButton.textContent = "방 입장";
   });
 }
@@ -262,9 +267,7 @@ function sendMessage(event) {
   event.preventDefault();
   var text = els.messageInput.value.trim();
   if (!text || !state.key) return;
-
-  var message = { text: text, nickname: state.nickname, createdAt: Date.now() };
-
+  var message = { type: "text", text: text, nickname: state.nickname, createdAt: Date.now() };
   encryptMessage(message).then(function(packet) {
     appendMessage(message, true);
     broadcastPacket(packet);
@@ -272,11 +275,34 @@ function sendMessage(event) {
   });
 }
 
+function sendFile(file) {
+  if (!file || !state.key) return;
+
+  var MAX = 3 * 1024 * 1024; // 3MB
+  if (file.size > MAX) { alert("파일 크기는 3MB 이하만 가능합니다."); return; }
+
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var isImage = file.type.startsWith("image/");
+    var message = {
+      type: isImage ? "image" : "file",
+      dataUrl: e.target.result,
+      fileName: file.name,
+      nickname: state.nickname,
+      createdAt: Date.now(),
+    };
+    encryptMessage(message).then(function(packet) {
+      appendMessage(message, true);
+      broadcastPacket(packet);
+    });
+  };
+  reader.readAsDataURL(file);
+}
+
 function copyInvite() {
   var params = new URLSearchParams();
   if (els.roomId.value.trim())   params.set("room",  els.roomId.value.trim());
   if (els.relayUrl.value.trim()) params.set("relay", els.relayUrl.value.trim());
-
   var link = location.origin + location.pathname + "#" + params.toString();
   navigator.clipboard.writeText(link).then(function() {
     els.copyInviteButton.textContent = "복사됨 ✓";
@@ -296,7 +322,6 @@ function hydrateFromUrl() {
 els.newRoomButton.addEventListener("click", function() {
   els.roomId.value     = randomToken(12);
   els.roomSecret.value = randomToken(24);
-  // 새 방은 자동으로 바로 입장
   joinRoom();
 });
 
@@ -309,6 +334,21 @@ els.copyInviteButton.addEventListener("click", copyInvite);
 els.clearButton.addEventListener("click", clearMessages);
 els.form.addEventListener("submit", sendMessage);
 
+els.fileButton.addEventListener("click", function() { els.fileInput.click(); });
+els.fileInput.addEventListener("change", function() {
+  if (els.fileInput.files[0]) { sendFile(els.fileInput.files[0]); els.fileInput.value = ""; }
+});
+
+// 드래그 앤 드롭
+els.messages.addEventListener("dragover", function(e) { e.preventDefault(); els.messages.classList.add("drag-over"); });
+els.messages.addEventListener("dragleave", function() { els.messages.classList.remove("drag-over"); });
+els.messages.addEventListener("drop", function(e) {
+  e.preventDefault();
+  els.messages.classList.remove("drag-over");
+  var file = e.dataTransfer.files[0];
+  if (file) sendFile(file);
+});
+
 // ── Init ───────────────────────────────────────────────────────────────────
 
 hydrateFromUrl();
@@ -316,7 +356,7 @@ clearMessages();
 
 if (!window.crypto || !window.crypto.subtle) {
   els.cryptoStatus.textContent = "HTTPS 환경 필요";
-  els.cryptoStatus.className   = "status warn";
+  els.cryptoStatus.className = "status warn";
   els.joinButton.disabled = true;
   els.newRoomButton.disabled = true;
 }
