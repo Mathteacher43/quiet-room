@@ -1,0 +1,23 @@
+name = "quiet-room-relay"
+main = "relay-worker.js"
+compatibility_date = "2024-01-01"
+account_id = "c31bb04e7cc014b454684a18f48031c4"
+
+[durable_objects]
+bindings = [{ name = "ROOMS", class_name = "Room" }]
+
+[[kv_namespaces]]
+binding = "BLOCKLIST"
+id = "da29c4fc24bc4be0bd1c31a28f704652"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = []
+
+[[migrations]]
+tag = "v3"
+deleted_classes = ["Registry"]
