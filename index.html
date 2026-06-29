@@ -3,101 +3,132 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
-  <title>Quiet Room</title>
+  <title>채팅방 — PJH Hub</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="shell">
-    <div class="room-panel">
-      <header class="topbar">
-        <div class="brand-row">
-          <span class="mark">Q</span>
-          <div>
-            <h1>Quiet Room</h1>
-            <p class="eyebrow">end-to-end encrypted · no accounts · no logs</p>
-          </div>
-        </div>
-        <div class="status-stack">
-          <span class="status" id="onlineStatus">오프라인</span>
-          <span class="status" id="roomStatus">방 미입장</span>
-          <span class="status" id="cryptoStatus">암호화 대기</span>
-          <span class="status" id="relayStatus">오프라인</span>
-        </div>
-      </header>
+<div class="shell">
+  <div class="room-panel">
 
-      <div class="setup-grid">
-        <label>
-          방 ID
-          <input id="roomId" type="text" placeholder="자동 생성됨" autocomplete="off" spellcheck="false" />
-        </label>
-        <label>
-          비밀키
-          <div class="inline-control">
-            <input id="roomSecret" type="password" placeholder="공유할 비밀키" autocomplete="off" />
-            <button id="showSecretButton" title="비밀키 표시/숨기기">👁</button>
-          </div>
-        </label>
-        <label>
-          닉네임
-          <input id="nickname" type="text" placeholder="익명" autocomplete="off" />
-        </label>
-        <label>
-          중계 서버 URL
-          <input id="relayUrl" type="url" placeholder="wss://..." autocomplete="off" />
-        </label>
+    <!-- 탑바 -->
+    <header class="topbar">
+      <div class="brand-row">
+        <span class="mark">C</span>
+        <div>
+          <h1>채팅방</h1>
+          <p class="eyebrow">PJH Hub · chat</p>
+        </div>
       </div>
+      <div class="status-stack">
+        <span class="status" id="onlineStatus">오프라인</span>
+        <span class="status" id="roomStatus">미입장</span>
+        <span class="status" id="cryptoStatus">대기</span>
+        <span class="status" id="relayStatus">오프라인</span>
+        <!-- 로그인 정보 -->
+        <span class="status good" id="userStatus" style="display:none"></span>
+        <button class="topbar-btn" id="logoutBtn" style="display:none">로그아웃</button>
+      </div>
+    </header>
 
+    <!-- 탭 -->
+    <div class="tab-bar">
+      <button class="tab-btn active" id="tabPublic">🌐 공개 채팅방</button>
+      <button class="tab-btn" id="tabPrivate">🔒 개인 채팅방</button>
+      <div class="tab-spacer"></div>
+      <button class="topbar-btn" id="loginToggleBtn">로그인 / 가입</button>
+    </div>
+
+    <!-- 로그인/가입 패널 -->
+    <div id="authPanel" style="display:none;">
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="authTabLogin">로그인</button>
+        <button class="auth-tab" id="authTabRegister">회원가입</button>
+      </div>
+      <div class="auth-body" id="authLoginForm">
+        <div class="auth-grid">
+          <input id="loginId" type="text" placeholder="아이디" autocomplete="username" />
+          <input id="loginPw" type="password" placeholder="비밀번호" autocomplete="current-password" />
+        </div>
+        <p class="auth-err" id="loginErr"></p>
+        <button class="primary auth-submit" id="loginBtn">로그인</button>
+      </div>
+      <div class="auth-body" id="authRegisterForm" style="display:none;">
+        <div class="auth-grid">
+          <input id="regId" type="text" placeholder="아이디 (영문/숫자/_ 3~20자)" autocomplete="username" />
+          <input id="regName" type="text" placeholder="실제 이름 (1~20자)" />
+          <input id="regPw" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="new-password" />
+        </div>
+        <p class="auth-err" id="regErr"></p>
+        <button class="primary auth-submit" id="registerBtn">가입하기</button>
+      </div>
+    </div>
+
+    <!-- 공개방 섹션 -->
+    <div id="publicSection">
+      <div class="public-rooms" id="publicRoomList">
+        <div class="room-card" onclick="joinPublicRoom('public-1','광장 1')">
+          <div class="room-card-name">🏛 광장 1</div>
+          <div class="room-card-desc">자유롭게 대화하는 공개 채팅방</div>
+          <div class="room-card-badge" id="online-public-1">— 명</div>
+        </div>
+        <div class="room-card" onclick="joinPublicRoom('public-2','광장 2')">
+          <div class="room-card-name">🏛 광장 2</div>
+          <div class="room-card-desc">자유롭게 대화하는 공개 채팅방</div>
+          <div class="room-card-badge" id="online-public-2">— 명</div>
+        </div>
+        <div class="room-card" onclick="joinPublicRoom('public-3','광장 3')">
+          <div class="room-card-name">🏛 광장 3</div>
+          <div class="room-card-desc">자유롭게 대화하는 공개 채팅방</div>
+          <div class="room-card-badge" id="online-public-3">— 명</div>
+        </div>
+      </div>
+      <div class="notice">공개 채팅방은 <strong>계정 로그인</strong> 후 입장 가능합니다. 메시지는 암호화되지 않습니다.</div>
+    </div>
+
+    <!-- 개인방 섹션 -->
+    <div id="privateSection" style="display:none;">
+      <div class="setup-grid">
+        <label>방 ID<input id="roomId" type="text" placeholder="자동 생성됨" autocomplete="off" spellcheck="false" /></label>
+        <label>비밀키<div class="inline-control"><input id="roomSecret" type="password" placeholder="공유할 비밀키" autocomplete="off" /><button id="showSecretButton" title="표시/숨기기">👁</button></div></label>
+        <label>닉네임<input id="nickname" type="text" placeholder="익명" autocomplete="off" /></label>
+        <label>중계 서버<input id="relayUrl" type="url" placeholder="wss://..." autocomplete="off" /></label>
+      </div>
       <div class="actions">
         <button id="newRoomButton">새 방 만들기</button>
         <button class="primary" id="joinButton">방 입장</button>
         <button id="copyInviteButton">초대 링크 복사</button>
         <button id="clearButton">지우기</button>
       </div>
-
-      <div class="notice">
-        <strong>비밀키는 앱 밖에서 따로 공유하세요.</strong>
-        초대 링크에는 방 ID만 포함됩니다. 탭을 닫으면 메시지는 완전히 사라집니다.
-      </div>
-
-      <div class="messages" id="messages" role="log" aria-live="polite">
-        <p class="empty" id="emptyMsg">아직 메시지가 없습니다.<br />방에 입장하면 대화가 시작됩니다.</p>
-      </div>
-
-      <form class="composer" id="form">
-        <button type="button" id="fileButton" disabled title="파일/이미지 전송">📎</button>
-        <input id="fileInput" type="file" accept="image/*,.pdf,.txt,.zip" style="display:none" />
-        <input id="messageInput" type="text" placeholder="방에 입장하면 메시지를 보낼 수 있습니다." disabled autocomplete="off" />
-        <button id="sendButton" type="submit" disabled>전송</button>
-      </form>
+      <div class="notice"><strong>비밀키는 앱 밖에서 따로 공유하세요.</strong> 초대 링크에는 방 ID만 포함됩니다.</div>
     </div>
 
-    <aside class="side-panel">
-      <h2>사용 방법</h2>
-      <dl>
-        <div>
-          <dt>1. 새 방 만들기</dt>
-          <dd>버튼을 누르면 방 ID·비밀키가 자동 생성되고 바로 입장됩니다.</dd>
-        </div>
-        <div>
-          <dt>2. 비밀키 공유</dt>
-          <dd>비밀키는 전화·다른 메신저 등 앱 밖으로만 공유하세요.</dd>
-        </div>
-        <div>
-          <dt>3. 초대 링크 전송</dt>
-          <dd>링크를 공유하면 상대방이 같은 방 ID로 쉽게 입장합니다.</dd>
-        </div>
-        <div>
-          <dt>파일 전송</dt>
-          <dd>📎 버튼이나 드래그 앤 드롭으로 이미지·파일을 전송할 수 있습니다. (최대 3MB)</dd>
-        </div>
-        <div>
-          <dt>암호화</dt>
-          <dd>AES-GCM 256-bit. 서버는 내용을 볼 수 없습니다.</dd>
-        </div>
-      </dl>
-    </aside>
-  </div>
+    <!-- 채팅창 -->
+    <div class="messages" id="messages" role="log" aria-live="polite">
+      <p class="empty" id="emptyMsg">방을 선택하거나 입장하면 채팅이 시작됩니다.</p>
+    </div>
 
-  <script src="app.js"></script>
+    <!-- 입력창 -->
+    <form class="composer" id="form">
+      <button type="button" id="fileButton" disabled title="파일/이미지 전송">📎</button>
+      <input id="fileInput" type="file" accept="image/*,.pdf,.txt,.zip" style="display:none" />
+      <input id="messageInput" type="text" placeholder="방에 입장하면 메시지를 보낼 수 있습니다." disabled autocomplete="off" maxlength="2000" />
+      <button id="sendButton" type="submit" disabled>전송</button>
+    </form>
+
+  </div><!-- /room-panel -->
+
+  <aside class="side-panel">
+    <h2>안내</h2>
+    <dl>
+      <div><dt>공개 채팅방</dt><dd>계정 로그인 후 광장 1~3에 입장. 평문 메시지.</dd></div>
+      <div><dt>개인 채팅방</dt><dd>계정 없이도 가능. 방 ID + 비밀키로 E2EE 암호화.</dd></div>
+      <div><dt>파일 전송</dt><dd>📎 또는 드래그 앤 드롭. 최대 3MB. 개인방에서만 암호화.</dd></div>
+      <div><dt>보안</dt><dd>개인방: AES-GCM 256-bit. 공개방: 평문 (암호화 없음).</dd></div>
+      <div><dt>메시지 제한</dt><dd>초당 5개. 초과 시 잠시 차단.</dd></div>
+    </dl>
+  </aside>
+</div>
+
+<script src="app.js"></script>
 </body>
 </html>
