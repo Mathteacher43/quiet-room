@@ -65,10 +65,12 @@ export class Room {
     const sess = this.sessions.get(clientId);
     if (!sess) return false;
     const now = Date.now();
-    if (!sess.msgWindowStart || now - sess.msgWindowStart >= 1000) {
+    // 1.5초 윈도우에 최대 3개 — 너무 빡빡하면 정상 대화도 막히므로
+    // 체감상 "도배 방지"가 확실히 느껴지는 선에서 절충
+    if (!sess.msgWindowStart || now - sess.msgWindowStart >= 1500) {
       sess.msgCount = 1; sess.msgWindowStart = now; return true;
     }
-    if (sess.msgCount >= 5) return false;
+    if (sess.msgCount >= 3) return false;
     sess.msgCount++; return true;
   }
 
